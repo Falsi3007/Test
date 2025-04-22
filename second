@@ -1,0 +1,10 @@
+select $1 as id, 
+replace($2,'"','') as first_name,
+$3 as last_name,
+ TRIM(
+    REGEXP_REPLACE(
+      REGEXP_SUBSTR($5, '(#|APT|AOT)[^,]*', 1, 1),
+      '#\\s*', ''  -- removes only the '#' and any space after it
+    )  ) AS Apartment_number,
+TRIM(REGEXP_REPLACE($5, '(#|APT|AOT)[^,]*', '', 1, 1)) AS Address_1
+from @EXAM.DEMO.MY_INT_STAGE/DATA-CLEANING.csv;
