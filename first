@@ -1,0 +1,17 @@
+create or replace file format my_format
+type=json
+strip_outer_array=true;
+
+create or replace table Content_data(
+f variant
+);
+
+copy into Content_data
+from @EXAM.DEMO.MY_INT_STAGE/Exam-Json-Data.json 
+FILE_FORMAT = (FORMAT_NAME = 'my_format');
+
+select f:id, f:type, f:name, f:ppu, f1.value:id, f1.value:type, f2.value:id, f2.value:id
+from CONTENT_DATA,
+lateral flatten ( input=> f:batters.batter) f1,
+lateral flatten ( input=> f:topping) f2,
+;
