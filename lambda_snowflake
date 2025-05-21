@@ -1,0 +1,213 @@
+create or replace file format exam.public.my_format
+TYPE = CSV
+SKIP_HEADER = 1
+FIELD_OPTIONALLY_ENCLOSED_BY = '"'
+error_on_column_count_mismatch=false;
+
+
+-----------------------products table----------------------------------
+create or replace table exam.public.products (id int, title string, price float, description string, category string, image string, rating_rate float, rating_count int, start_timestamp timestamp_tz, end_timestamp timestamp_tz, is_current boolean);
+
+select * from product_temp;
+
+ -- select 
+ --            $1::INT AS id,
+ --            $2::STRING AS title,
+ --            $3::FLOAT AS price,
+ --            $4::STRING AS description,
+ --            $5::STRING AS category,
+ --            $6::STRING AS image,
+ --            $7::FLOAT AS rating_rate,
+ --            $8::INT AS rating_count,
+ --            FROM '@"EXAM"."PUBLIC"."MY_STAGE"/2025-05-15/09-15/products.csv'
+ --        (file_format => my_format);
+
+create or replace procedure exam.public.sp_load_products(path string)
+returns string
+language sql
+as
+$$
+DECLARE
+    sql_query string;
+
+begin 
+
+sql_query := 'create or replace TEMPORARY table product_temp
+        as
+        select 
+            $1::INT AS id,
+            $2::STRING AS title,
+            $3::FLOAT AS price,
+            $4::STRING AS description,
+            $5::STRING AS category,
+            $6::STRING AS image,
+            $7::FLOAT AS rating_rate,
+            $8::INT AS rating_count,
+            FROM ''@EXAM.PUBLIC.MY_STAGE/' || path || '''
+        (file_format => ''my_format'')';
+
+    EXECUTE IMMEDIATE sql_query;
+
+merge into EXAM.public.products as t 
+using EXAM.public.product_temp as s on
+(t.id = s.id and t.is_current=TRUE)
+when matched then
+    update set t.is_current=FALSE;
+
+MERGE INTO products AS t
+    USING product_temp AS s
+    ON (t.id = s.id AND t.is_current = TRUE)
+        WHEN NOT MATCHED
+        THEN
+            INSERT (id, title, price, description, category, image, rating_rate, rating_count, start_timestamp, end_timestamp, is_current)
+            VALUES (s.id, s.title, s.price, s.description, s.category, s.image, s.rating_rate, s.rating_count, CURRENT_TIMESTAMP(), NULL, TRUE);
+
+RETURN 'Table Updated/Inserted Successfully';
+
+end;
+$$;
+
+call sp_load_products('2025-05-15/17-07/products.csv');
+
+-- select * from directory(@exam.public.my_stage);
+
+--------------------------------------carts tabel -------------------------------------------
+
+create or replace table cart_final(
+    cart_id int,
+    userId int,
+    date string,
+    productId int,
+    quantity int
+);
+
+create or replace procedure sp_load_cart(path string)
+RETURNS STRING
+LANGUAGE SQL
+AS
+$$
+DECLARE
+    sql_query string;
+BEGIN
+    sql_query := 'create or replace TEMPORARY table cart_temp
+        as
+        select
+            $1::INT as cart_id,
+            $2::INT as userId,
+            $3::DATE as date,
+            $4::INT as productId,
+            $5::INT as quantity,
+            FROM ''@EXAM.PUBLIC.MY_STAGE/' || path || '''
+        (file_format => ''my_format'')';
+
+    EXECUTE IMMEDIATE sql_query;
+
+    MERGE INTO cart_final AS t
+    USING cart_temp AS s
+    ON t.cart_id = s.cart_id AND t.productId = s.productId
+        WHEN MATCHED AND (t.quantity != s.quantity OR 
+                            t.userId != s.userId OR
+                            t.date != s.date)
+        THEN
+            UPDATE SET t.quantity = s.quantity, 
+                       t.cart_id = s.cart_id,
+                       t.date = s.date
+        WHEN NOT MATCHED
+        THEN
+            INSERT (cart_id, userId, date,productId, quantity)
+            VALUES (s.cart_id, s.userId, s.date, s.productId, s.quantity);
+    
+    return 'Table Updated/Inserted Succesfully';
+END;
+$$;
+
+call sp_load_cart('2025-05-15/17-07/carts.csv');
+
+
+---------------------------------------user tabel-----------------------------------------------
+
+create or replace table users_final(
+    id INT,
+    email STRING,
+    username STRING,
+    password STRING,
+    phone STRING,
+    v INT,
+    add_geo_lat FLOAT,
+    add_geo_long FLOAT,
+    add_city STRING,
+    add_street STRING,
+    add_number INT,
+    add_zipcode STRING,
+    name_fnm STRING,
+    name_lnm STRING 
+);
+
+create or replace procedure sp_load_users(path string)
+RETURNS STRING
+LANGUAGE SQL
+as 
+$$
+declare 
+    sql_query string;
+    -- path string;
+
+begin
+--     select relative_path
+--     into path
+--     from directory(@my_stage)
+--     where relative_path like '%users%'
+--     order by relative_path desc 
+--     limit 1;
+
+    sql_query := 'create or replace temporary table user_temp
+    as 
+    select 
+        $1::STRING as id,
+        $2::STRING AS email,
+        $3::STRING AS username,
+        $4::STRING AS password,
+        $5::STRING AS phone,
+        $6::INT AS v,
+        $7::FLOAT AS add_geo_lat,
+        $8::FLOAT AS add_geo_long,
+        $9::STRING as add_city,
+        $10::STRING as add_street,
+        $11::INT as add_number,
+        $12::STRING as add_zipcode,
+        $13::STRING as name_fnm,
+        $14::STRING as name_lnm
+        FROM ''@EXAM.PUBLIC.MY_STAGE/' || path || '''
+        (file_format => ''my_format'')';
+
+    execute immediate sql_query;
+
+    merge into users_final as t
+    using user_temp as s
+    on t.id=s.id 
+    when matched then
+    update set
+        t.email = s.email,
+        t.username = s.username, 
+        t.phone = s.phone
+
+    when not matched then
+        insert(id, email, username, password, phone, v, add_geo_lat, add_geo_long, add_city, add_street, add_number, add_zipcode, name_fnm, name_lnm)
+        values(s.id, s.email, s.username, s.password, s.phone, s.v, s.add_geo_lat, s.add_geo_long, s.add_city, s.add_street, s.add_number, s.add_zipcode,                   s.name_fnm, s.name_lnm);
+
+    return 'Table Updated/Inserted Succesfully';
+
+end;
+$$;
+
+call sp_load_users('2025-05-17/13-23/users.csv');
+
+
+
+
+truncate table products;
+truncate table cart_final;
+truncate table users_final;
+
+
+select * from users_final;
